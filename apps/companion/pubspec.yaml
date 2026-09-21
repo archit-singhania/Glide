@@ -1,0 +1,29 @@
+name: glide_companion
+description: Glide companion app - pairs with `glide start` and controls a Flutter app running on your computer.
+publish_to: none
+version: 0.1.0+1
+
+environment:
+  sdk: ^3.6.0
+
+# Kept outside the root Dart pub workspace on purpose: a Flutter app cannot
+# resolve inside a pure-Dart workspace. It shares the wire protocol through a
+# path dependency instead.
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  glide_protocol:
+    path: ../../packages/glide_protocol
+  go_router: ^14.6.0
+  mobile_scanner: ^6.0.0
+  shared_preferences: ^2.3.0
+  web_socket_channel: ^3.0.0
+
+dev_dependencies:
+  flutter_lints: ^5.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true

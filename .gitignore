@@ -1,0 +1,25 @@
+# Dart / Flutter
+.dart_tool/
+.packages
+pubspec.lock
+build/
+*.g.dart
+*.freezed.dart
+coverage/
+
+# Glide runtime state (contains a local control token — never commit)
+.glide/
+
+# IDEs / OS
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Secrets — never commit
+.env
+.env.*
+*.jks
+*.keystore
+key.properties

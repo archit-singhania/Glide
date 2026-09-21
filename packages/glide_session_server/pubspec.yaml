@@ -1,0 +1,19 @@
+name: glide_session_server
+description: Authenticated local HTTP/WebSocket session server for the Glide companion.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  glide_protocol: ^0.1.0
+  glide_security: ^0.1.0
+  shelf: ^1.4.1
+  shelf_web_socket: ^3.0.0
+  web_socket_channel: ^3.0.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

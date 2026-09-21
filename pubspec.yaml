@@ -1,0 +1,41 @@
+name: glide_workspace
+description: Glide — Flutter Development Companion. Monorepo root.
+publish_to: none
+
+environment:
+  sdk: ^3.6.0
+
+workspace:
+  - packages/glide_protocol
+  - packages/glide_security
+  - packages/glide_flutter_bridge
+  - packages/glide_project_analyzer
+  - packages/glide_device_manager
+  - packages/glide_log_parser
+  - packages/glide_session_server
+  - packages/glide_build_manager
+  - tools/glide_cli
+
+# apps/companion is deliberately NOT a workspace member: a Flutter app cannot
+# resolve inside a pure-Dart workspace. It depends on glide_protocol through a
+# path dependency and has its own pubspec.lock (see
+# docs/development/companion-setup.md).
+
+dev_dependencies:
+  lints: ^5.0.0
+  melos: ^7.0.0
+
+melos:
+  scripts:
+    format:
+      description: Format every package.
+      run: dart format .
+    format:check:
+      description: Fail if any file is not formatted.
+      run: dart format --output=none --set-exit-if-changed .
+    analyze:
+      description: Static analysis across the workspace.
+      run: dart analyze --fatal-infos .
+    test:
+      description: Run all pure-Dart package tests.
+      run: dart run melos exec --concurrency=1 --dir-exists=test --no-flutter -- dart test

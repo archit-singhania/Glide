@@ -1,0 +1,16 @@
+name: glide_device_manager
+description: Device discovery, state tracking and transports for Glide.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  glide_flutter_bridge: ^0.1.0
+  glide_protocol: ^0.1.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

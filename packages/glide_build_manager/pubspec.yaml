@@ -1,0 +1,20 @@
+name: glide_build_manager
+description: Session orchestration — run, hot reload, restart, watching — for Glide.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  glide_device_manager: ^0.1.0
+  glide_flutter_bridge: ^0.1.0
+  glide_log_parser: ^0.1.0
+  glide_project_analyzer: ^0.1.0
+  glide_protocol: ^0.1.0
+  path: ^1.9.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0
