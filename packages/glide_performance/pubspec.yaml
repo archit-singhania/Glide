@@ -1,0 +1,20 @@
+name: glide_performance
+description: Samples FPS, frame time and memory from the Dart VM service of a running Flutter app.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  # Used only by the real IoVmServiceClient adapter in
+  # src/io_vm_service_client.dart. Every other file in this package depends
+  # on the small VmServiceClient interface instead, so it is fully testable
+  # without a real Dart VM service. This dependency and the adapter that uses
+  # it have not been exercised against a real `flutter run` process.
+  vm_service: ^14.2.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

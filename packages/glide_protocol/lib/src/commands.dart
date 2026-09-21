@@ -11,7 +11,11 @@ enum CompanionCommandType {
   appRestart('app.restart'),
   logsClear('logs.clear'),
   sessionDisconnect('session.disconnect'),
-  diagnosticsRequest('diagnostics.request');
+  diagnosticsRequest('diagnostics.request'),
+
+  /// Asks the computer to open DevTools for the running app. Carries no
+  /// arguments: the computer already knows which app that is.
+  devtoolsOpen('devtools.open');
 
   const CompanionCommandType(this.wire);
 

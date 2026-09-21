@@ -1,6 +1,7 @@
 import 'package:glide_build_manager/glide_build_manager.dart';
 import 'package:glide_build_manager/testing.dart';
 import 'package:glide_flutter_bridge/glide_flutter_bridge.dart';
+import 'package:glide_project_analyzer/glide_project_analyzer.dart';
 import 'package:glide_protocol/glide_protocol.dart';
 import 'package:test/test.dart';
 
@@ -469,6 +470,141 @@ void main() {
     expect(report['line'], 82);
     expect(report['category'], 'dart');
     expect(publisher.saw(MessageTypes.logEntry), isTrue);
+  });
+
+  group('restart.required', () {
+    ProjectChange gradle(String path) => ProjectChange(
+          path: path,
+          impact: ChangeImpact.fullRestart,
+          reason: 'Android build configuration changed',
+          platform: ProjectPlatform.android,
+        );
+
+    test('is announced once per new file while an app runs', () async {
+      await runApp();
+
+      controller.reportProjectChanges(<ProjectChange>[
+        gradle('android/app/build.gradle'),
+      ]);
+      controller.reportProjectChanges(<ProjectChange>[
+        gradle('android/app/build.gradle'),
+      ]);
+
+      expect(publisher.of(MessageTypes.restartRequired), hasLength(1));
+      expect(controller.restartRequired, isTrue);
+      final payload = publisher.last(MessageTypes.restartRequired).payload;
+      expect(payload['count'], 1);
+      expect(payload['reasons'], hasLength(1));
+
+      controller.reportProjectChanges(<ProjectChange>[gradle('pubspec.yaml')]);
+
+      expect(publisher.of(MessageTypes.restartRequired), hasLength(2));
+      expect(
+        publisher.last(MessageTypes.restartRequired).payload['count'],
+        2,
+      );
+    });
+
+    test('ignores changes that hot reload can apply', () async {
+      await runApp();
+
+      controller.reportProjectChanges(const <ProjectChange>[
+        ProjectChange(
+          path: 'lib/main.dart',
+          impact: ChangeImpact.hotReload,
+          reason: 'Dart source changed',
+        ),
+      ]);
+
+      expect(publisher.saw(MessageTypes.restartRequired), isFalse);
+      expect(controller.restartRequired, isFalse);
+    });
+
+    test('is ignored when no app is running', () async {
+      controller.reportProjectChanges(<ProjectChange>[
+        gradle('android/app/build.gradle'),
+      ]);
+
+      expect(publisher.saw(MessageTypes.restartRequired), isFalse);
+      expect(controller.restartRequired, isFalse);
+    });
+
+    test('is also recorded while the app is still building', () async {
+      await controller.handle(
+        _command(CompanionCommandType.appRun, <String, Object?>{
+          'deviceId': 'pixel-1',
+        }),
+      );
+
+      controller.reportProjectChanges(<ProjectChange>[
+        gradle('android/app/build.gradle'),
+      ]);
+
+      expect(publisher.saw(MessageTypes.restartRequired), isTrue);
+    });
+
+    test('does not block hot reload', () async {
+      final session = await runApp();
+      controller.reportProjectChanges(<ProjectChange>[
+        gradle('android/app/build.gradle'),
+      ]);
+
+      await controller.handle(_command(CompanionCommandType.appReload));
+
+      expect(session.reloadCalls, 1);
+      expect(controller.restartRequired, isTrue);
+    });
+
+    test('a full restart clears the pending reasons', () async {
+      await runApp();
+      controller.reportProjectChanges(<ProjectChange>[
+        gradle('android/app/build.gradle'),
+      ]);
+
+      await controller.handle(
+        _command(CompanionCommandType.appRestart, <String, Object?>{
+          'mode': 'full',
+        }),
+      );
+      sessions.last.markStarted(appId: 'app-2');
+      await settle();
+
+      expect(controller.restartRequired, isFalse);
+    });
+
+    test('stopping the app clears the pending reasons', () async {
+      await runApp();
+      controller.reportProjectChanges(<ProjectChange>[
+        gradle('android/app/build.gradle'),
+      ]);
+
+      await controller.handle(_command(CompanionCommandType.appStop));
+
+      expect(controller.restartRequired, isFalse);
+    });
+
+    test('the snapshot carries the pending reasons', () async {
+      await runApp();
+      controller.reportProjectChanges(<ProjectChange>[
+        gradle('android/app/build.gradle'),
+      ]);
+
+      await controller
+          .handle(_command(CompanionCommandType.diagnosticsRequest));
+
+      final snapshot = publisher.last(MessageTypes.sessionSnapshot).payload;
+      expect(snapshot['count'], 1);
+      expect(snapshot['reasons'], hasLength(1));
+
+      await controller.handle(_command(CompanionCommandType.appStop));
+      await controller
+          .handle(_command(CompanionCommandType.diagnosticsRequest));
+
+      expect(
+        publisher.last(MessageTypes.sessionSnapshot).payload,
+        isNot(contains('reasons')),
+      );
+    });
   });
 
   test('commands are processed in the order they arrive', () async {

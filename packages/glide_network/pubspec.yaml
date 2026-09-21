@@ -1,0 +1,19 @@
+name: glide_network
+description: Observes the HTTP requests a running Flutter app makes, through the Dart VM service.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ^3.6.0
+
+dependencies:
+  # Used only by the real adapter in src/io_http_profile_client.dart. Every
+  # other file depends on the small HttpProfileClient interface, so the
+  # monitor is fully testable without a VM service. The adapter has not been
+  # exercised against a real `flutter run` process.
+  vm_service: ^14.2.0
+
+dev_dependencies:
+  lints: ^5.0.0
+  test: ^1.25.0

@@ -136,10 +136,16 @@ void main() {
 
       expect(report.hasErrors, isFalse);
       expect(report.hasWarnings, isFalse);
+      // Building for iOS needs a Mac, so on this (Linux) host that one check
+      // is skipped; every other check passes.
+      expect(_statusOf(report, 'ios-toolchain'), CheckStatus.skipped);
       expect(
-        report.checks.map((c) => c.status),
+        report.checks
+            .where((c) => c.id != 'ios-toolchain')
+            .map((c) => c.status),
         everyElement(CheckStatus.ok),
       );
+      expect(runner.calls, isNot(contains('xcodebuild -version')));
       expect(report.flutterVersion, '3.30.0');
       expect(report.devices.single.name, 'Pixel 10');
       expect(report.lanAddresses, <String>['192.168.1.20']);

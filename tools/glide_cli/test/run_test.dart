@@ -1,11 +1,24 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:glide_build_manager/glide_build_manager.dart';
 import 'package:glide_build_manager/testing.dart';
 import 'package:glide_cli/glide_cli.dart';
 import 'package:glide_flutter_bridge/glide_flutter_bridge.dart';
 import 'package:glide_project_analyzer/glide_project_analyzer.dart';
 import 'package:test/test.dart';
+
+class _FakeDevTools implements DevToolsHandle {
+  bool closed = false;
+
+  @override
+  Future<void> close() async => closed = true;
+}
+
+/// A VM service address as the Flutter tool reports it. The path segment is a
+/// credential for the running app, so tests check it never reaches the
+/// terminal.
+const String _vmServiceUri = 'ws://127.0.0.1:5555/SECRETCODE=/ws';
 
 class _FakeAnalyzer implements ProjectAnalyzer {
   @override
@@ -31,10 +44,14 @@ void main() {
   late StringBuffer out;
   late StringBuffer err;
   late StreamController<String> keys;
+  late StreamController<String> watchedPaths;
   late Completer<void> interrupt;
   late List<FakeAppSession> sessions;
   late List<String> launchedDevices;
+  late List<String> devToolsUris;
+  late List<_FakeDevTools> devTools;
   Object? launchError;
+  Object? devToolsError;
   String? chosenDevice;
 
   setUp(() {
@@ -44,10 +61,14 @@ void main() {
     out = StringBuffer();
     err = StringBuffer();
     keys = StreamController<String>();
+    watchedPaths = StreamController<String>();
     interrupt = Completer<void>();
     sessions = <FakeAppSession>[];
     launchedDevices = <String>[];
+    devToolsUris = <String>[];
+    devTools = <_FakeDevTools>[];
     launchError = null;
+    devToolsError = null;
     chosenDevice = null;
   });
 
@@ -55,10 +76,26 @@ void main() {
     // Not awaited: close() only completes once a listener has consumed the
     // stream, and some tests never reach the point of listening.
     unawaited(keys.close());
+    unawaited(watchedPaths.close());
     if (project.existsSync()) project.deleteSync(recursive: true);
   });
 
   RunEnvironment environment() => RunEnvironment(
+        // A silent fake watcher, so these tests never touch the real file
+        // system watcher on the temp project.
+        createWatcher: (root, onError) => ProjectWatcher(
+          projectRoot: root,
+          paths: (_) => watchedPaths.stream,
+          onError: onError,
+        ),
+        openDevTools: (uri) async {
+          devToolsUris.add(uri);
+          final error = devToolsError;
+          if (error != null) throw error;
+          final handle = _FakeDevTools();
+          devTools.add(handle);
+          return handle;
+        },
         launchApp: ({
           required String projectPath,
           required String deviceId,
@@ -207,6 +244,82 @@ void main() {
 
       expect(code, 1);
       expect(err.toString(), contains('pubspec.yaml'));
+    });
+
+    test('d opens DevTools once for the running app, q closes it', () async {
+      final done = run(<String>['--device', 'pixel-1']);
+      final session = await waitForSession();
+      session.vmServiceUri = _vmServiceUri;
+      session.markStarted();
+      await _waitFor(out, 'App running on');
+
+      keys.add('d');
+      await _waitFor(out, 'DevTools opened.');
+      expect(devToolsUris, <String>[_vmServiceUri]);
+
+      // A second press reuses the open DevTools instead of starting another.
+      keys.add('d');
+      await _waitFor(out, 'DevTools is already open.');
+      expect(devToolsUris, hasLength(1));
+
+      keys.add('q');
+      expect(await done, 0);
+      expect(devTools.single.closed, isTrue);
+      expect(out.toString(), isNot(contains('SECRETCODE')));
+      expect(err.toString(), isNot(contains('SECRETCODE')));
+    });
+
+    test('d before the app is running is reported and starts nothing',
+        () async {
+      final done = run(<String>['--device', 'pixel-1']);
+      final session = await waitForSession();
+      session.vmServiceUri = _vmServiceUri;
+
+      keys.add('d');
+      await _waitFor(out, 'Cannot do that: No running app to inspect.');
+      expect(devToolsUris, isEmpty);
+
+      keys.add('q');
+      expect(await done, 0);
+    });
+
+    test('DevTools failing to start does not stop the app', () async {
+      devToolsError = StateError('no browser');
+      final done = run(<String>['--device', 'pixel-1']);
+      final session = await waitForSession();
+      session.vmServiceUri = _vmServiceUri;
+      session.markStarted();
+      await _waitFor(out, 'App running on');
+
+      keys.add('d');
+      await _waitFor(out, 'DevTools failed:');
+      expect(out.toString(), isNot(contains('SECRETCODE')));
+
+      keys.add('r');
+      await _waitFor(out, 'Hot reload completed in 42 ms.');
+      expect(session.stopped, isFalse);
+
+      keys.add('q');
+      expect(await done, 0);
+    });
+
+    test('h prints the key legend again', () async {
+      final done = run(<String>['--device', 'pixel-1']);
+      final session = await waitForSession();
+      session.markStarted();
+      await _waitFor(out, 'App running on');
+      const legend = 'd devtools';
+      expect(legend.allMatches(out.toString()), hasLength(1));
+
+      keys.add('h');
+      final deadline = DateTime.now().add(const Duration(seconds: 5));
+      while (legend.allMatches(out.toString()).length < 2) {
+        if (DateTime.now().isAfter(deadline)) fail('Key help never reprinted.');
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+
+      keys.add('q');
+      expect(await done, 0);
     });
 
     test('terminal output from the app has control characters removed',

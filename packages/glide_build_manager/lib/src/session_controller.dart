@@ -2,7 +2,13 @@ import 'dart:async';
 
 import 'package:glide_flutter_bridge/glide_flutter_bridge.dart';
 import 'package:glide_log_parser/glide_log_parser.dart';
+import 'package:glide_network/glide_network.dart';
+import 'package:glide_performance/glide_performance.dart';
+import 'package:glide_project_analyzer/glide_project_analyzer.dart'
+    show ChangeImpact, ProjectChange;
 import 'package:glide_protocol/glide_protocol.dart';
+
+import 'devtools.dart';
 
 /// Starts `flutter run --machine` for [deviceId]. The project path, SDK and
 /// build mode are already bound by whoever creates the controller.
@@ -11,6 +17,19 @@ typedef AppLauncher = Future<AppSession> Function({required String deviceId});
 /// Chooses a device when a command does not name one. Returns null when no
 /// unambiguous choice exists.
 typedef DefaultDeviceResolver = Future<String?> Function();
+
+/// Connects to the app's Dart VM service and starts sampling performance.
+/// Null disables performance sampling entirely (the default): nothing
+/// publishes `performance.sample` and no VM service connection is ever made.
+typedef PerformanceSamplerConnector = Future<PerformanceSampler> Function(
+  String vmServiceUri,
+);
+
+/// Connects to the app's Dart VM service and starts watching its HTTP
+/// requests. Null disables network monitoring entirely (the default).
+typedef NetworkMonitorConnector = Future<NetworkMonitor> Function(
+  String vmServiceUri,
+);
 
 /// Called with unexpected failures while handling a command. The sender only
 /// ever sees a generic `command.rejected`.
@@ -50,6 +69,7 @@ const Set<SessionState> _up = <SessionState>{
 
 const int _maxLogLength = 4000;
 const int _snapshotLogCount = 100;
+const int _maxRestartReasons = 20;
 
 /// Turns allowlisted [CompanionCommand]s into actions on a Flutter app, and
 /// turns what the Flutter tool reports into protocol messages.
@@ -72,6 +92,9 @@ class SessionController {
     required this.publisher,
     required this.launchApp,
     this.defaultDevice,
+    this.connectPerformanceSampler,
+    this.connectNetworkMonitor,
+    this.openDevTools,
     this.onInternalError,
     this.maxBufferedLogs = 500,
     DateTime Function()? clock,
@@ -83,6 +106,16 @@ class SessionController {
   final EventPublisher publisher;
   final AppLauncher launchApp;
   final DefaultDeviceResolver? defaultDevice;
+
+  /// Null (the default) disables performance sampling.
+  final PerformanceSamplerConnector? connectPerformanceSampler;
+
+  /// Null (the default) disables network monitoring.
+  final NetworkMonitorConnector? connectNetworkMonitor;
+
+  /// Null (the default) makes `devtools.open` answer that DevTools is not
+  /// available in this session.
+  final DevToolsOpener? openDevTools;
   final ControllerErrorHandler? onInternalError;
   final int maxBufferedLogs;
   final DateTime Function() _clock;
@@ -92,6 +125,21 @@ class SessionController {
   AppSession? _session;
   String? _deviceId;
   final List<LogEntry> _logs = <LogEntry>[];
+  PerformanceSampler? _performanceSampler;
+  // Cancelled in _stopMonitoring through a local alias, which the lint cannot
+  // follow across the field reset.
+  // ignore: cancel_subscriptions
+  StreamSubscription<PerformanceSample>? _performanceSubscription;
+  PerformanceSample? _lastPerformanceSample;
+  NetworkMonitor? _networkMonitor;
+  // Cancelled in _stopMonitoring; see _performanceSubscription.
+  // ignore: cancel_subscriptions
+  StreamSubscription<NetworkEvent>? _networkSubscription;
+  DevToolsHandle? _devTools;
+
+  // Files changed since the running app was built, keyed by path, that hot
+  // reload cannot apply. Cleared whenever the app is launched or torn down.
+  final Map<String, ProjectChange> _restartReasons = <String, ProjectChange>{};
   final Stopwatch _launchWatch = Stopwatch();
   Future<void> _queue = Future<void>.value();
 
@@ -100,12 +148,60 @@ class SessionController {
   int _generation = 0;
   bool _restartInFlight = false;
 
+  // Set for the whole duration of the teardown step that a full restart
+  // performs on its own old session, so `_teardown` does not mistake that
+  // expected step for the session being stopped out from under a restart.
+  bool _restartTeardownExpected = false;
+
   SessionState get state => machine.state;
+
+  /// True from the moment a full restart begins tearing down the old
+  /// session until the new one has started or the restart has failed.
+  ///
+  /// External callers that watch [SessionStateMachine.changes] for a
+  /// terminal `connected`/`failed` state should ignore one reached while
+  /// this is true: a full restart passes through `connected` on its way
+  /// to relaunching, and that is not the session ending.
+  bool get isRestarting => _restartInFlight;
 
   /// The device the current (or most recent) app was launched on.
   String? get deviceId => _deviceId;
 
   List<LogEntry> get recentLogs => List<LogEntry>.unmodifiable(_logs);
+
+  /// True when files changed that only a full restart can apply.
+  bool get restartRequired => _restartReasons.isNotEmpty;
+
+  /// Tells the controller that project files changed on disk.
+  ///
+  /// Changes that hot reload can apply are ignored. Anything that needs a
+  /// full restart (native code, Gradle or Xcode configuration, `pubspec.yaml`)
+  /// is remembered and announced once as `restart.required`, only while an
+  /// app is starting or running. Hot reload is not blocked: the developer may
+  /// have edited a platform they are not running on.
+  void reportProjectChanges(Iterable<ProjectChange> changes) {
+    if (!_starting.contains(machine.state) && !_up.contains(machine.state)) {
+      return;
+    }
+    var added = false;
+    for (final change in changes) {
+      if (change.impact != ChangeImpact.fullRestart) continue;
+      if (_restartReasons.containsKey(change.path)) continue;
+      _restartReasons[change.path] = change;
+      added = true;
+    }
+    if (added) {
+      _publish(MessageTypes.restartRequired, _restartPayload());
+    }
+  }
+
+  Map<String, Object?> _restartPayload() => <String, Object?>{
+        'count': _restartReasons.length,
+        'reasons': <Map<String, Object?>>[
+          for (final change in _restartReasons.values.take(_maxRestartReasons))
+            change.toJson(),
+        ],
+      };
 
   /// Queues [command]. The returned future completes once it has been acted
   /// on; it never throws.
@@ -135,6 +231,8 @@ class SessionController {
           }
         case CompanionCommandType.diagnosticsRequest:
           _publishSnapshot();
+        case CompanionCommandType.devtoolsOpen:
+          await _openDevTools(command);
       }
     } on Object catch (error, stackTrace) {
       onInternalError?.call(error, stackTrace);
@@ -175,6 +273,7 @@ class SessionController {
     final generation = ++_generation;
     _deviceId = device;
     _restartInFlight = viaRestart;
+    _restartReasons.clear();
     _launchWatch
       ..reset()
       ..start();
@@ -243,19 +342,33 @@ class SessionController {
         'durationMs': elapsed,
       });
     }
+    final vmServiceUri = session.vmServiceUri;
+    if (vmServiceUri != null) {
+      if (connectPerformanceSampler != null) {
+        unawaited(_startPerformanceSampling(generation, vmServiceUri));
+      }
+      if (connectNetworkMonitor != null) {
+        unawaited(_startNetworkMonitoring(generation, vmServiceUri));
+      }
+    }
   }
 
   void _failLaunch(int generation, String message, {int? exitCode}) {
     if (generation != _generation) return;
     _session = null;
+    _restartReasons.clear();
+    unawaited(_stopMonitoring());
+    // Reset before the state transition fires, so a listener watching for a
+    // terminal `failed` state via `isRestarting` sees the restart as over.
+    final wasRestarting = _restartInFlight;
+    if (wasRestarting) _restartInFlight = false;
     _transition(SessionState.failed, message);
     _publish(MessageTypes.buildFailed, <String, Object?>{
       'message': message,
       if (_deviceId != null) 'deviceId': _deviceId,
       if (exitCode != null) 'exitCode': exitCode,
     });
-    if (_restartInFlight) {
-      _restartInFlight = false;
+    if (wasRestarting) {
       _publish(MessageTypes.restartFailed, <String, Object?>{
         'mode': 'full',
         'message': message,
@@ -270,6 +383,8 @@ class SessionController {
     final state = machine.state;
     if (_up.contains(state)) {
       _session = null;
+      _restartReasons.clear();
+      await _stopMonitoring();
       await _eventSubscription?.cancel();
       _eventSubscription = null;
       _publish(MessageTypes.appStopped, <String, Object?>{
@@ -382,9 +497,12 @@ class SessionController {
         _reject(command, 'The device for this app is unknown.');
         return;
       }
+      _restartInFlight = true;
       _transition(SessionState.restarting, 'full restart');
       _publish(MessageTypes.restartStarted, <String, Object?>{'mode': 'full'});
+      _restartTeardownExpected = true;
       await _teardown('full restart');
+      _restartTeardownExpected = false;
       await _launch(device, viaRestart: true);
       return;
     }
@@ -428,9 +546,11 @@ class SessionController {
     final session = _session;
     _generation++;
     _session = null;
+    _restartReasons.clear();
     await _eventSubscription?.cancel();
     _eventSubscription = null;
-    if (_restartInFlight) {
+    await _stopMonitoring();
+    if (_restartInFlight && !_restartTeardownExpected) {
       _restartInFlight = false;
       _publish(MessageTypes.restartFailed, <String, Object?>{
         'mode': 'full',
@@ -455,6 +575,139 @@ class SessionController {
     _transition(SessionState.connected, reason);
   }
 
+  // ----------------------------------------------------------- monitoring
+
+  Future<void> _startPerformanceSampling(
+    int generation,
+    String vmServiceUri,
+  ) async {
+    final connector = connectPerformanceSampler;
+    if (connector == null) return;
+    final PerformanceSampler sampler;
+    try {
+      sampler = await connector(vmServiceUri);
+    } on Object catch (error) {
+      // Only the type is logged: the error text could contain the VM service
+      // address, which is a credential.
+      _log(
+        'glide',
+        LogLevel.warning,
+        'Performance sampling is unavailable (${error.runtimeType}).',
+      );
+      return;
+    }
+    if (generation != _generation || _performanceSampler != null) {
+      await sampler.stop();
+      return;
+    }
+    _performanceSampler = sampler;
+    _performanceSubscription = sampler.samples.listen((sample) {
+      _lastPerformanceSample = sample;
+      _publish(MessageTypes.performanceSample, sample.toJson());
+    });
+  }
+
+  Future<void> _startNetworkMonitoring(
+    int generation,
+    String vmServiceUri,
+  ) async {
+    final connector = connectNetworkMonitor;
+    if (connector == null) return;
+    final NetworkMonitor monitor;
+    try {
+      monitor = await connector(vmServiceUri);
+    } on Object catch (error) {
+      _log(
+        'glide',
+        LogLevel.warning,
+        'Network monitoring is unavailable (${error.runtimeType}).',
+      );
+      return;
+    }
+    if (generation != _generation || _networkMonitor != null) {
+      await monitor.stop();
+      return;
+    }
+    _networkMonitor = monitor;
+    _networkSubscription = monitor.events.listen(
+      (event) => _publish(MessageTypes.networkResponse, event.toJson()),
+    );
+  }
+
+  /// Releases everything attached to the running app: the performance
+  /// sampler, the network monitor and any DevTools server. Safe to call when
+  /// nothing is attached.
+  Future<void> _stopMonitoring() async {
+    final performanceSubscription = _performanceSubscription;
+    final sampler = _performanceSampler;
+    final networkSubscription = _networkSubscription;
+    final monitor = _networkMonitor;
+    final devTools = _devTools;
+    _performanceSubscription = null;
+    _performanceSampler = null;
+    _lastPerformanceSample = null;
+    _networkSubscription = null;
+    _networkMonitor = null;
+    _devTools = null;
+    await performanceSubscription?.cancel();
+    await networkSubscription?.cancel();
+    try {
+      await sampler?.stop();
+    } on Object {
+      // The connection may already be gone; sampling is over either way.
+    }
+    try {
+      await monitor?.stop();
+    } on Object {
+      // Same: the app may have closed first.
+    }
+    try {
+      await devTools?.close();
+    } on Object {
+      // DevTools may already have exited.
+    }
+  }
+
+  Future<void> _openDevTools(CompanionCommand command) async {
+    final opener = openDevTools;
+    if (opener == null) {
+      _reject(command, 'DevTools is not available in this session.');
+      return;
+    }
+    final session = _session;
+    final vmServiceUri = session?.vmServiceUri;
+    if (session == null || vmServiceUri == null || !_up.contains(state)) {
+      _reject(command, 'No running app to inspect.');
+      return;
+    }
+    if (_devTools != null) {
+      _publish(MessageTypes.devtoolsOpened, <String, Object?>{
+        'alreadyOpen': true,
+      });
+      return;
+    }
+    final DevToolsHandle handle;
+    try {
+      handle = await opener(vmServiceUri);
+    } on Object catch (error) {
+      _publish(MessageTypes.devtoolsFailed, <String, Object?>{
+        'message': 'DevTools could not be started (${error.runtimeType}).',
+      });
+      return;
+    }
+    if (!identical(session, _session)) {
+      // The app went away while DevTools was starting.
+      try {
+        await handle.close();
+      } on Object {
+        // Nothing more to do.
+      }
+      return;
+    }
+    _devTools = handle;
+    _publish(MessageTypes.devtoolsOpened);
+  }
+
   // -------------------------------------------------------------- plumbing
 
   void _publishSnapshot() {
@@ -465,6 +718,9 @@ class SessionController {
       'state': machine.state.name,
       if (_deviceId != null) 'deviceId': _deviceId,
       'recentLogs': logs.map((entry) => entry.toJson()).toList(),
+      if (restartRequired) ..._restartPayload(),
+      if (_lastPerformanceSample case final sample?)
+        'performance': sample.toJson(),
     });
   }
 

@@ -22,6 +22,17 @@ class SessionScreen extends ConsumerWidget {
         title: const Text('Glide'),
         actions: <Widget>[
           IconButton(
+            tooltip: 'Open DevTools on computer',
+            icon: const Icon(Icons.developer_mode),
+            onPressed: view.canOpenDevTools ? notifier.openDevTools : null,
+          ),
+          IconButton(
+            tooltip: 'Network',
+            icon: const Icon(Icons.swap_vert),
+            onPressed:
+                view.network.isEmpty ? null : () => _showNetwork(context),
+          ),
+          IconButton(
             tooltip: 'Disconnect',
             icon: const Icon(Icons.link_off),
             onPressed: () async {
@@ -68,6 +79,11 @@ class SessionScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            if (view.needsFullRestart)
+              _RestartBanner(
+                reasons: view.restartReasons,
+                onRestart: view.canReload ? notifier.fullRestart : null,
+              ),
             if (!linked && view.link != LinkStatus.reconnecting)
               Padding(
                 padding: const EdgeInsets.all(16),
@@ -110,6 +126,58 @@ class SessionScreen extends ConsumerWidget {
             Expanded(child: _LogList(logs: view.logs)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+String _performanceLine(PerformanceView performance) =>
+    '${performance.fps.toStringAsFixed(1)} fps - '
+    '${performance.frameTimeMs.toStringAsFixed(1)} ms/frame - '
+    '${performance.jankyFrames} janky - '
+    '${performance.memoryLabel}';
+
+void _showNetwork(BuildContext context) {
+  showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (_) => const _NetworkSheet(),
+  );
+}
+
+/// The app's recent HTTP requests, newest first. Updates while open.
+class _NetworkSheet extends ConsumerWidget {
+  const _NetworkSheet();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final calls = ref.watch(sessionProvider.select((view) => view.network));
+    final theme = Theme.of(context);
+    return SafeArea(
+      child: SizedBox(
+        height: MediaQuery.of(context).size.height * 0.6,
+        child: calls.isEmpty
+            ? const Center(child: Text('No requests yet.'))
+            : ListView.builder(
+                itemCount: calls.length,
+                itemBuilder: (context, index) {
+                  final call = calls[calls.length - 1 - index];
+                  return ListTile(
+                    dense: true,
+                    title: Text(
+                      '${call.method} ${call.url}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      call.summary,
+                      style: call.failed
+                          ? TextStyle(color: theme.colorScheme.error)
+                          : null,
+                    ),
+                  );
+                },
+              ),
       ),
     );
   }
@@ -169,8 +237,60 @@ class _StatusCard extends StatelessWidget {
               const SizedBox(height: 12),
               Text(view.notice!, style: TextStyle(color: noticeColor)),
             ],
+            if (view.performance != null) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                _performanceLine(view.performance!),
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Shown when files changed that hot reload cannot apply.
+class _RestartBanner extends StatelessWidget {
+  const _RestartBanner({required this.reasons, required this.onRestart});
+
+  final List<RestartReason> reasons;
+  final VoidCallback? onRestart;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final shown = reasons.take(2).toList();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.tertiaryContainer,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text('Full restart required', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 4),
+          const Text('Hot reload cannot apply these changes:'),
+          for (final reason in shown)
+            Text(
+              '${reason.path} - ${reason.reason}',
+              style: theme.textTheme.bodySmall,
+            ),
+          if (reasons.length > shown.length)
+            Text(
+              '...and ${reasons.length - shown.length} more',
+              style: theme.textTheme.bodySmall,
+            ),
+          const SizedBox(height: 8),
+          FilledButton(
+            onPressed: onRestart,
+            child: const Text('Full restart now'),
+          ),
+        ],
       ),
     );
   }

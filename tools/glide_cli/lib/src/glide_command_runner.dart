@@ -7,6 +7,7 @@ import 'package:glide_project_analyzer/glide_project_analyzer.dart';
 import 'commands/devices_command.dart';
 import 'commands/doctor_command.dart';
 import 'commands/inspect_command.dart';
+import 'commands/plugins_command.dart';
 import 'commands/run_command.dart';
 import 'commands/start_command.dart';
 import 'services/device_session.dart';
@@ -23,6 +24,7 @@ class GlideCommandRunner extends CommandRunner<int> {
     EnvironmentInspector? environment,
     DoctorRenderer renderer = const DoctorRenderer(),
     ProjectAnalyzer? analyzer,
+    PluginAnalyzer pluginAnalyzer = const PluginAnalyzer(),
     String? workingDirectory,
     DeviceSessionOpener? deviceSessionOpener,
     DevicesRenderer devicesRenderer = const DevicesRenderer(),
@@ -46,6 +48,14 @@ class GlideCommandRunner extends CommandRunner<int> {
     addCommand(
       InspectCommand(
         analyzer: projectAnalyzer,
+        out: out,
+        workingDirectory: directory,
+      ),
+    );
+    addCommand(
+      PluginsCommand(
+        analyzer: projectAnalyzer,
+        pluginAnalyzer: pluginAnalyzer,
         out: out,
         workingDirectory: directory,
       ),

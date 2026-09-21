@@ -56,6 +56,10 @@ abstract final class MessageTypes {
   static const String networkRequest = 'network.request';
   static const String networkResponse = 'network.response';
 
+  // DevTools, opened on the computer at the phone's request.
+  static const String devtoolsOpened = 'devtools.opened';
+  static const String devtoolsFailed = 'devtools.failed';
+
   // Host feedback about a rejected command.
   static const String commandRejected = 'command.rejected';
 }

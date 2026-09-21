@@ -8,6 +8,7 @@ import 'android_sdk_detector.dart';
 import 'doctor_report.dart';
 import 'flutter_sdk_detector.dart';
 import 'host_environment.dart';
+import 'ios_toolchain_check.dart';
 import 'java_detector.dart';
 import 'machine_json.dart';
 import 'tool_probe.dart';
@@ -54,6 +55,7 @@ class EnvironmentService implements EnvironmentInspector {
     required FlutterSdkLocator locator,
     LanAddressProvider? lanAddresses,
   })  : _probe = ToolProbe(runner),
+        _host = host,
         _flutter = FlutterSdkDetector(
           probe: ToolProbe(runner),
           locator: locator,
@@ -71,6 +73,7 @@ class EnvironmentService implements EnvironmentInspector {
       );
 
   final ToolProbe _probe;
+  final HostEnvironment _host;
   final FlutterSdkDetector _flutter;
   final AndroidSdkDetector _androidSdk;
   final AdbDetector _adb;
@@ -124,6 +127,7 @@ class EnvironmentService implements EnvironmentInspector {
     checks.add(_adbCheck(await _adb.detect(sdk: androidSdk)));
     checks.add(_javaCheck(await _java.detect()));
     checks.add(await _gitCheck());
+    checks.addAll(await checkIosToolchain(probe: _probe, host: _host));
 
     var devices = const <FlutterDevice>[];
     if (sdk == null) {

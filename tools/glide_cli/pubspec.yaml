@@ -16,6 +16,8 @@ dependencies:
   glide_device_manager: ^0.1.0
   glide_flutter_bridge: ^0.1.0
   glide_log_parser: ^0.1.0
+  glide_network: ^0.1.0
+  glide_performance: ^0.1.0
   glide_project_analyzer: ^0.1.0
   glide_protocol: ^0.1.0
   glide_security: ^0.1.0

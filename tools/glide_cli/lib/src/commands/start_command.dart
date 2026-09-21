@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:glide_build_manager/glide_build_manager.dart';
+import 'package:glide_network/glide_network.dart' as net;
+import 'package:glide_performance/glide_performance.dart' as perf;
 import 'package:glide_project_analyzer/glide_project_analyzer.dart';
 import 'package:glide_protocol/glide_protocol.dart';
 import 'package:glide_security/glide_security.dart';
@@ -10,7 +12,9 @@ import 'package:glide_session_server/glide_session_server.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/app_launcher.dart';
+import '../services/devtools_launcher.dart';
 import '../services/lan_address.dart';
+import '../services/project_watching.dart';
 import '../services/start_session_info.dart';
 import '../ui/qr_renderer.dart';
 import '../ui/start_renderer.dart';
@@ -47,6 +51,10 @@ class StartEnvironment {
     this.qr = const QrRenderer(),
     this.launchApp = launchFlutterApp,
     this.chooseDevice = chooseSystemDefaultDevice,
+    this.createWatcher = createSystemProjectWatcher,
+    this.connectPerformanceSampler = perf.connectPerformanceSampler,
+    this.connectNetworkMonitor = net.connectNetworkMonitor,
+    this.openDevTools = openSystemDevTools,
   });
 
   final LanAddressResolver resolveLanAddress;
@@ -62,6 +70,18 @@ class StartEnvironment {
 
   /// Picks a device when `app.run` does not name one.
   final DefaultDeviceChooser chooseDevice;
+
+  /// Watches the project for changes that need a full restart.
+  final ProjectWatcherFactory createWatcher;
+
+  /// Samples FPS, frame time and memory from the running app's VM service.
+  final PerformanceSamplerConnector connectPerformanceSampler;
+
+  /// Watches the running app's HTTP requests through its VM service.
+  final NetworkMonitorConnector connectNetworkMonitor;
+
+  /// Opens DevTools on this computer when the companion asks.
+  final DevToolsOpener openDevTools;
 }
 
 enum _Outcome { interrupted, expired }
@@ -172,6 +192,9 @@ class StartCommand extends Command<int> {
         flutterSdkPath: flutterSdk,
       ),
       defaultDevice: () => environment.chooseDevice(flutterSdkPath: flutterSdk),
+      connectPerformanceSampler: environment.connectPerformanceSampler,
+      connectNetworkMonitor: environment.connectNetworkMonitor,
+      openDevTools: environment.openDevTools,
       onInternalError: (error, _) => err.writeln(
         'glide: internal error while handling a command '
         '(${error.runtimeType}).',
@@ -188,6 +211,7 @@ class StartCommand extends Command<int> {
     }
     final subscriptions = <StreamSubscription<Object?>>[];
     Timer? expiryTimer;
+    Future<void> Function()? stopWatching;
     try {
       machine.transitionTo(SessionState.pairing);
       final credential = pairing.issue(sessionId: sessionId);
@@ -217,6 +241,17 @@ class StartCommand extends Command<int> {
           }),
         );
 
+      stopWatching = watchForRestartNeeds(
+        watcher: environment.createWatcher(
+          root,
+          (error) => err.writeln(
+            'glide: watching for file changes stopped '
+            '(${error.runtimeType}).',
+          ),
+        ),
+        controller: controller,
+      );
+
       expiryTimer = Timer(credential.expiresAt.difference(DateTime.now()), () {
         if (!paired && !expired.isCompleted) expired.complete();
       });
@@ -244,6 +279,7 @@ class StartCommand extends Command<int> {
       return 0;
     } finally {
       expiryTimer?.cancel();
+      await stopWatching?.call();
       for (final subscription in subscriptions) {
         await subscription.cancel();
       }

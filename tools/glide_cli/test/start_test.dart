@@ -2,15 +2,27 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:glide_build_manager/glide_build_manager.dart';
 import 'package:glide_build_manager/testing.dart';
 import 'package:glide_cli/glide_cli.dart';
 import 'package:glide_flutter_bridge/glide_flutter_bridge.dart';
+import 'package:glide_network/glide_network.dart';
+import 'package:glide_network/testing.dart';
+import 'package:glide_performance/glide_performance.dart';
+import 'package:glide_performance/testing.dart';
 import 'package:glide_project_analyzer/glide_project_analyzer.dart';
 import 'package:glide_protocol/glide_protocol.dart';
 import 'package:glide_security/glide_security.dart';
 import 'package:glide_session_server/glide_session_server.dart';
 import 'package:test/test.dart';
 import 'package:web_socket_channel/io.dart';
+
+class _FakeDevTools implements DevToolsHandle {
+  bool closed = false;
+
+  @override
+  Future<void> close() async => closed = true;
+}
 
 class _FakeAnalyzer implements ProjectAnalyzer {
   @override
@@ -27,6 +39,9 @@ StartEnvironment _env({
   Duration lifetime = const Duration(minutes: 5),
   LanAddressResolver? resolver,
   FlutterAppLauncher? launchApp,
+  PerformanceSamplerConnector? sampler,
+  NetworkMonitorConnector? network,
+  DevToolsOpener? devTools,
 }) =>
     StartEnvironment(
       resolveLanAddress: resolver ?? () async => InternetAddress.loopbackIPv4,
@@ -35,6 +50,18 @@ StartEnvironment _env({
       pairingLifetime: lifetime,
       launchApp: launchApp ?? launchFlutterApp,
       chooseDevice: ({String? flutterSdkPath}) async => null,
+      // Never the real file watcher, VM service or DevTools in tests.
+      createWatcher: (root, onError) => ProjectWatcher(
+        projectRoot: root,
+        paths: (_) => StreamController<String>().stream,
+        onError: onError,
+      ),
+      connectPerformanceSampler:
+          sampler ?? (_) async => throw StateError('no sampler in this test'),
+      connectNetworkMonitor:
+          network ?? (_) async => throw StateError('no monitor in this test'),
+      openDevTools:
+          devTools ?? (_) async => throw StateError('no DevTools in this test'),
     );
 
 Future<void> _waitFor(StringBuffer out, String needle) async {
@@ -263,6 +290,187 @@ void main() {
       channel.sink.add(GlideMessage.create('app.stop').encode());
       await waitForMessage(MessageTypes.appStopped);
       expect(session.stopped, isTrue);
+
+      await channel.sink.close();
+      stop.complete();
+      expect(await done, 0);
+    });
+
+    test(
+        'a paired companion gets performance and network updates and can '
+        'open DevTools', () async {
+      const vmServiceUri = 'ws://127.0.0.1:5555/SECRETCODE=/ws';
+      final session = FakeAppSession()..vmServiceUri = vmServiceUri;
+      final fakeSampler = FakePerformanceSampler();
+      final fakeMonitor = FakeNetworkMonitor();
+      final fakeDevTools = _FakeDevTools();
+      final connectedTo = <String>[];
+      final stop = Completer<void>();
+      final done = start(
+        <String>['--host', '127.0.0.1', '--port', '47760', '--print-uri'],
+        _env(
+          shutdown: () => stop.future,
+          launchApp: ({
+            required String projectPath,
+            required String deviceId,
+            String? flutterSdkPath,
+            AppMode? mode,
+          }) async =>
+              session,
+          sampler: (uri) async {
+            connectedTo.add(uri);
+            return fakeSampler;
+          },
+          network: (uri) async {
+            connectedTo.add(uri);
+            return fakeMonitor;
+          },
+          devTools: (uri) async {
+            connectedTo.add(uri);
+            return fakeDevTools;
+          },
+        ),
+      );
+
+      await _waitFor(out, 'Waiting for Glide companion');
+      final payload = _payloadFrom(out.toString());
+      final grant = await _pair(payload);
+      final channel = IOWebSocketChannel.connect(
+        Uri.parse('ws://127.0.0.1:${payload.port}/ws'),
+        headers: <String, String>{
+          controlTokenHeader: grant.payload['sessionToken']! as String,
+        },
+      );
+      await channel.ready;
+      final received = <GlideMessage>[];
+      channel.stream.listen(
+        (Object? data) => received.add(GlideMessage.decode(data! as String)),
+      );
+
+      GlideMessage? find(String type) {
+        for (final message in received) {
+          if (message.type == type) return message;
+        }
+        return null;
+      }
+
+      // Waits for [type], running [nudge] on every poll. The fakes' streams
+      // are broadcast streams, so an event sent before the controller has
+      // subscribed is dropped; nudging repeats it until one gets through.
+      Future<GlideMessage> waitForMessage(
+        String type, {
+        void Function()? nudge,
+      }) async {
+        final deadline = DateTime.now().add(const Duration(seconds: 5));
+        while (true) {
+          final message = find(type);
+          if (message != null) return message;
+          if (DateTime.now().isAfter(deadline)) {
+            fail('Timed out waiting for $type. Received: $received');
+          }
+          nudge?.call();
+          await Future<void>.delayed(const Duration(milliseconds: 10));
+        }
+      }
+
+      channel.sink.add(
+        GlideMessage.create(
+          'app.run',
+          payload: <String, Object?>{'deviceId': 'pixel-1'},
+        ).encode(),
+      );
+      await waitForMessage(MessageTypes.buildStarted);
+      session.markStarted();
+      await waitForMessage(MessageTypes.appStarted);
+
+      final sample = await waitForMessage(
+        MessageTypes.performanceSample,
+        nudge: () => fakeSampler.emit(
+          PerformanceSample(
+            timestamp: DateTime.utc(2026, 9, 21),
+            windowMs: 2000,
+            frameCount: 120,
+            fps: 59.8,
+            avgFrameTimeMs: 16.2,
+            jankyFrameCount: 3,
+            heapUsageBytes: 190 * 1024 * 1024,
+          ),
+        ),
+      );
+      expect(sample.payload['fps'], 59.8);
+      expect(sample.payload['jankyFrameCount'], 3);
+
+      final response = await waitForMessage(
+        MessageTypes.networkResponse,
+        nudge: () => fakeMonitor.emit(
+          const NetworkEvent(
+            id: 'req-1',
+            method: 'GET',
+            url: 'https://api.example.com/users',
+            statusCode: 200,
+            durationMs: 342,
+            sizeBytes: 18300,
+          ),
+        ),
+      );
+      expect(response.payload['url'], 'https://api.example.com/users');
+      expect(response.payload['statusCode'], 200);
+
+      channel.sink.add(GlideMessage.create('devtools.open').encode());
+      await waitForMessage(MessageTypes.devtoolsOpened);
+
+      channel.sink.add(GlideMessage.create('app.stop').encode());
+      await waitForMessage(MessageTypes.appStopped);
+
+      // Every monitor and DevTools were attached to the app's own VM service
+      // and released when it stopped.
+      expect(connectedTo, everyElement(vmServiceUri));
+      expect(connectedTo, hasLength(3));
+      expect(fakeSampler.stopped, isTrue);
+      expect(fakeMonitor.stopped, isTrue);
+      expect(fakeDevTools.closed, isTrue);
+
+      // The VM service address is a credential and never reaches the phone.
+      final everything = received.map((m) => m.encode()).join('\n');
+      expect(everything, isNot(contains('SECRETCODE')));
+      expect(out.toString(), isNot(contains('SECRETCODE')));
+
+      await channel.sink.close();
+      stop.complete();
+      expect(await done, 0);
+    });
+
+    test('devtools.open without a running app is rejected, not started',
+        () async {
+      final opened = <String>[];
+      final stop = Completer<void>();
+      final done = start(
+        <String>['--host', '127.0.0.1', '--port', '47770', '--print-uri'],
+        _env(
+          shutdown: () => stop.future,
+          devTools: (uri) async {
+            opened.add(uri);
+            return _FakeDevTools();
+          },
+        ),
+      );
+
+      await _waitFor(out, 'Waiting for Glide companion');
+      final payload = _payloadFrom(out.toString());
+      final grant = await _pair(payload);
+      final channel = IOWebSocketChannel.connect(
+        Uri.parse('ws://127.0.0.1:${payload.port}/ws'),
+        headers: <String, String>{
+          controlTokenHeader: grant.payload['sessionToken']! as String,
+        },
+      );
+      await channel.ready;
+      channel.sink.add(GlideMessage.create('devtools.open').encode());
+
+      final reply = GlideMessage.decode(await channel.stream.first as String);
+      expect(reply.type, MessageTypes.commandRejected);
+      expect(reply.payload['command'], 'devtools.open');
+      expect(opened, isEmpty);
 
       await channel.sink.close();
       stop.complete();

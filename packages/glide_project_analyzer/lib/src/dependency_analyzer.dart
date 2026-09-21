@@ -7,13 +7,22 @@ import 'project_model.dart';
 
 /// Result of reading `.flutter-plugins-dependencies`.
 class PluginScan {
-  const PluginScan({required this.plugins, required this.resolved});
+  const PluginScan({
+    required this.plugins,
+    required this.resolved,
+    this.registered = const <String, Set<ProjectPlatform>>{},
+  });
 
   final List<NativePlugin> plugins;
 
   /// False when `flutter pub get` has not produced the file yet, so the list
   /// is empty because it is unknown, not because there are no plugins.
   final bool resolved;
+
+  /// Every plugin implementation Flutter registered, with the platforms it
+  /// registers for. Unlike [plugins] this includes Dart-only implementations
+  /// and the web platform, so it shows where a package works at all.
+  final Map<String, Set<ProjectPlatform>> registered;
 }
 
 /// Finds native plugins from the file Flutter generates during `pub get`.
@@ -44,15 +53,18 @@ abstract final class NativePluginScanner {
     }
 
     final byName = <String, Set<ProjectPlatform>>{};
+    final registered = <String, Set<ProjectPlatform>>{};
     for (final entry in plugins.entries) {
       final platform = ProjectPlatform.values.asNameMap()['${entry.key}'];
-      if (platform == null || platform == ProjectPlatform.web) continue;
+      if (platform == null) continue;
       final list = entry.value;
       if (list is! List) continue;
       for (final item in list) {
         if (item is! Map) continue;
         final name = item['name'];
         if (name is! String) continue;
+        registered.putIfAbsent(name, () => <ProjectPlatform>{}).add(platform);
+        if (platform == ProjectPlatform.web) continue;
         // Dart-only platform implementations have no native build.
         if (item['native_build'] == false) continue;
         byName.putIfAbsent(name, () => <ProjectPlatform>{}).add(platform);
@@ -66,6 +78,7 @@ abstract final class NativePluginScanner {
           NativePlugin(name: name, platforms: byName[name]!),
       ],
       resolved: true,
+      registered: registered,
     );
   }
 }

@@ -12,6 +12,8 @@ workspace:
   - packages/glide_project_analyzer
   - packages/glide_device_manager
   - packages/glide_log_parser
+  - packages/glide_network
+  - packages/glide_performance
   - packages/glide_session_server
   - packages/glide_build_manager
   - tools/glide_cli

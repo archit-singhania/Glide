@@ -9,6 +9,8 @@ import 'package:glide_protocol/glide_protocol.dart';
 import 'package:path/path.dart' as p;
 
 import '../services/app_launcher.dart';
+import '../services/devtools_launcher.dart';
+import '../services/project_watching.dart';
 import '../ui/run_renderer.dart';
 import 'start_command.dart' show ShutdownTrigger;
 
@@ -71,12 +73,20 @@ class RunEnvironment {
     this.chooseDevice = chooseSystemDefaultDevice,
     this.keys = terminalKeys,
     this.shutdown = _waitForInterrupt,
+    this.createWatcher = createSystemProjectWatcher,
+    this.openDevTools = openSystemDevTools,
   });
 
   final FlutterAppLauncher launchApp;
   final DefaultDeviceChooser chooseDevice;
   final KeySource keys;
   final ShutdownTrigger shutdown;
+
+  /// Watches the project for changes that need a full restart.
+  final ProjectWatcherFactory createWatcher;
+
+  /// Opens DevTools on this computer when `d` is pressed.
+  final DevToolsOpener openDevTools;
 }
 
 /// Prints protocol messages as terminal lines.
@@ -178,16 +188,19 @@ class RunCommand extends Command<int> {
 
     final machine = SessionStateMachine();
     final done = Completer<SessionState>();
+    late final SessionController controller;
     final changes = machine.changes.listen((change) {
       if ((change.to == SessionState.connected ||
               change.to == SessionState.failed) &&
+          !controller.isRestarting &&
           !done.isCompleted) {
         done.complete(change.to);
       }
     });
-    final controller = SessionController(
+    controller = SessionController(
       machine: machine,
       publisher: _TerminalPublisher(out, renderer),
+      openDevTools: environment.openDevTools,
       launchApp: ({required String deviceId}) => environment.launchApp(
         projectPath: root,
         deviceId: deviceId,
@@ -200,6 +213,15 @@ class RunCommand extends Command<int> {
     final keys = environment.keys().listen(
           (key) => _onKey(key, controller),
         );
+    final stopWatching = watchForRestartNeeds(
+      watcher: environment.createWatcher(
+        root,
+        (error) => err.writeln(
+          'glide: watching for file changes stopped (${error.runtimeType}).',
+        ),
+      ),
+      controller: controller,
+    );
 
     try {
       await controller.handle(
@@ -221,6 +243,7 @@ class RunCommand extends Command<int> {
       }
       return outcome == SessionState.failed ? 1 : 0;
     } finally {
+      await stopWatching();
       await keys.cancel();
       await controller.dispose();
       await changes.cancel();
@@ -236,6 +259,9 @@ class RunCommand extends Command<int> {
           type: CompanionCommandType.appRestart,
           payload: <String, Object?>{'mode': 'full'},
         ),
+      'd' ||
+      'D' =>
+        const CompanionCommand(type: CompanionCommandType.devtoolsOpen),
       'q' || 'Q' => const CompanionCommand(type: CompanionCommandType.appStop),
       'h' || '?' => null,
       _ => null,

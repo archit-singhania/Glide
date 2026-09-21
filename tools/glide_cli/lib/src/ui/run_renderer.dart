@@ -6,7 +6,7 @@ class RunRenderer {
 
   /// The key legend shown once the app is running.
   static const String keyHelp =
-      'r hot reload  R hot restart  F full restart  q quit';
+      'r hot reload  R hot restart  F full restart  d devtools  q quit';
 
   static const Set<String> _shownStates = <String>{
     'preparing',
@@ -42,15 +42,45 @@ class RunRenderer {
       case MessageTypes.restartFailed:
         return '${_mode(p)} restart failed: '
             '${_safe(p.stringOrNull('message') ?? '')}';
+      case MessageTypes.restartRequired:
+        return _restartRequired(p);
       case MessageTypes.appStopped:
         return 'App stopped.';
       case MessageTypes.logEntry:
         return _safe(p.stringOrNull('message') ?? '');
+      case MessageTypes.devtoolsOpened:
+        return p.boolOrNull('alreadyOpen') == true
+            ? 'DevTools is already open.'
+            : 'DevTools opened.';
+      case MessageTypes.devtoolsFailed:
+        return 'DevTools failed: ${_safe(p.stringOrNull('message') ?? '')}';
       case MessageTypes.commandRejected:
         return 'Cannot do that: ${_safe(p.stringOrNull('reason') ?? '')}';
       default:
         return null;
     }
+  }
+
+  String _restartRequired(Map<String, Object?> payload) {
+    final lines = <String>[
+      'Hot reload cannot apply these changes. A full restart is required:',
+    ];
+    var shown = 0;
+    final raw = payload['reasons'];
+    if (raw is List) {
+      for (final item in raw) {
+        if (item is! Map || shown == _maxReasonsShown) continue;
+        final reason = Map<String, Object?>.from(item);
+        final path = _safe(reason.stringOrNull('path') ?? '?');
+        final why = _safe(reason.stringOrNull('reason') ?? '');
+        lines.add('  $path - $why');
+        shown++;
+      }
+    }
+    final count = payload.intOrNull('count') ?? shown;
+    if (count > shown) lines.add('  ...and ${count - shown} more');
+    lines.add('Press F for a full restart.');
+    return lines.join('\n');
   }
 
   String _mode(Map<String, Object?> payload) =>
@@ -64,6 +94,8 @@ class RunRenderer {
   /// terminal, so control characters (including escape sequences) are dropped.
   String _safe(String text) => text.replaceAll(_control, '');
 }
+
+const int _maxReasonsShown = 3;
 
 final RegExp _control = RegExp(
   r'[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]',

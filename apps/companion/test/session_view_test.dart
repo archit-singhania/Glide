@@ -198,10 +198,15 @@ void main() {
       expect(next.notice, contains('No running app.'));
     });
 
-    test('unknown message types leave the view unchanged', () {
+    test('messages the phone does not act on leave the view alone', () {
       final view = _connected('running');
-      final next = reduceMessage(view, _msg('performance.sample'));
-      expect(next, same(view));
+      // A real protocol message the reducer deliberately ignores.
+      expect(
+        reduceMessage(view, _msg(MessageTypes.deviceDiscovered)),
+        same(view),
+      );
+      // A type from a future protocol revision is ignored, not a crash.
+      expect(reduceMessage(view, _msg('future.event')), same(view));
     });
   });
 

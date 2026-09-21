@@ -41,8 +41,10 @@ class FakeAppSession implements AppSession {
   @override
   String? get appId => _appId;
 
+  /// The Dart VM service address this session reports. Null (the default)
+  /// means the app is not attachable, so no monitoring starts.
   @override
-  String? get vmServiceUri => null;
+  String? vmServiceUri;
 
   @override
   Stream<FlutterToolEvent> get events => _events.stream;

@@ -137,6 +137,10 @@ class SessionNotifier extends Notifier<SessionView> {
 
   void stopApp() => _send(CompanionCommandType.appStop);
 
+  /// Asks the computer to open DevTools for the running app. It opens there,
+  /// not on the phone.
+  void openDevTools() => _send(CompanionCommandType.devtoolsOpen);
+
   void clearLogs() => _send(CompanionCommandType.logsClear);
 
   /// Leaves the session and forgets its token. The app keeps running on the
