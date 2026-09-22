@@ -3,6 +3,8 @@ import 'package:glide_protocol/glide_protocol.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../../shared/glide_glass.dart';
+
 /// Camera view that looks for a Glide pairing QR code.
 class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
@@ -41,41 +43,86 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Scan pairing code')),
-        body: Stack(
-          children: <Widget>[
-            MobileScanner(
-              controller: _controller,
-              onDetect: _onDetect,
-              errorBuilder: (context, error, child) => Center(
+  Widget build(BuildContext context) {
+    final tokens = glideTokens(context);
+    return Scaffold(
+      extendBodyBehindAppBar: true,
+      appBar: glassAppBar(context, title: 'Scan pairing code'),
+      backgroundColor: Colors.black,
+      body: Stack(
+        fit: StackFit.expand,
+        children: <Widget>[
+          MobileScanner(
+            controller: _controller,
+            onDetect: _onDetect,
+            errorBuilder: (context, error, child) => ColoredBox(
+              color: Colors.black,
+              child: Center(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
+                  child: GlassSurface(
+                    strong: true,
+                    child: Text(
+                      'The camera is not available '
+                      '(${error.errorCode.name}). Allow camera access in '
+                      'Settings, or paste the pairing link on the start '
+                      'screen.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          // A dimmed frame with a bright cut-out square, so the reticle
+          // reads as "aim here" without needing to know the camera preview
+          // API's own overlay support.
+          IgnorePointer(
+            child: Center(
+              child: Container(
+                width: 260,
+                height: 260,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(28),
+                  border: Border.all(
+                    color: tokens.glowSecondary.withValues(alpha: 0.9),
+                    width: 3,
+                  ),
+                  boxShadow: <BoxShadow>[
+                    BoxShadow(
+                      color: tokens.glowSecondary.withValues(alpha: 0.35),
+                      blurRadius: 40,
+                      spreadRadius: 4,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+                child: GlassSurface(
+                  strong: true,
                   child: Text(
-                    'The camera is not available '
-                    '(${error.errorCode.name}). Allow camera access in '
-                    'Settings, or paste the pairing link on the start '
-                    'screen.',
+                    _hint ??
+                        'Point the camera at the QR code shown by '
+                            '"glide start".',
+                    style: TextStyle(
+                      color: _hint == null
+                          ? Colors.white
+                          : Theme.of(context).colorScheme.error,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
               ),
             ),
-            if (_hint != null)
-              Align(
-                alignment: Alignment.bottomCenter,
-                child: Container(
-                  width: double.infinity,
-                  color: Colors.black87,
-                  padding: const EdgeInsets.all(16),
-                  child: Text(
-                    _hint!,
-                    style: const TextStyle(color: Colors.white),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      );
+          ),
+        ],
+      ),
+    );
+  }
 }

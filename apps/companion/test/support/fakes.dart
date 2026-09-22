@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:glide_companion/core/message_channel.dart';
+import 'package:glide_companion/core/recent_sessions.dart';
 import 'package:glide_protocol/glide_protocol.dart';
 
 /// Called for every message the app sends on a [FakeMessageChannel].
@@ -130,4 +131,34 @@ Future<void> flush() async {
   for (var i = 0; i < 10; i++) {
     await Future<void>.delayed(Duration.zero);
   }
+}
+
+/// An in-memory [RecentSessionsStore] stand-in for tests, so they never
+/// touch real `SharedPreferences`.
+class FakeRecentSessionsStore implements RecentSessionsStore {
+  final List<({String host, int port, DateTime connectedAt})> recorded =
+      <({String host, int port, DateTime connectedAt})>[];
+
+  @override
+  List<RecentSession> load() => <RecentSession>[
+        for (final entry in recorded.reversed)
+          RecentSession(
+            host: entry.host,
+            port: entry.port,
+            connectedAt: entry.connectedAt,
+          ),
+      ];
+
+  @override
+  Future<void> record({required String host, required int port}) async {
+    recorded.add((host: host, port: port, connectedAt: DateTime.now()));
+  }
+
+  @override
+  Future<void> remove({required String host, required int port}) async {
+    recorded.removeWhere((e) => e.host == host && e.port == port);
+  }
+
+  @override
+  Future<void> clear() async => recorded.clear();
 }

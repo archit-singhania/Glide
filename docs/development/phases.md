@@ -1,20 +1,55 @@
 # Phase status
 
-"Written" means the files and tests exist. As of the last full run (repo
-root: `dart pub get`, `dart fix --apply`, `dart format .`, `dart analyze
---fatal-infos`, `dart run melos run test`), `dart analyze --fatal-infos` was
-clean across all 11 pure-Dart packages, and 10 of 11 packages' tests passed.
-The 11th, `glide_cli`, had one failing test
-(`restart_required_test.dart: Dart-only changes print nothing`), which was a
-false positive in the test itself, not a product bug — see "Test fix" below.
-Every pure-Dart package including `glide_performance`, `glide_network` and
-`glide_build_manager`'s DevTools/monitoring tests are confirmed passing in
-that run. `apps/companion`'s last confirmed run was `flutter analyze` clean
-with 60 tests passing, before the Phase 13-15 companion UI additions
-(performance line, Network sheet, DevTools button) were written — those
-additions have not been through `flutter analyze`/`flutter test` yet. All
-tests use fakes: nothing here has been run against a real Flutter app, phone
-or emulator. "Written" therefore never means "proven on real hardware".
+"Written" means the files and tests exist. As of the last confirmed runs:
+repo root (`dart pub get`, `dart fix --apply`, `dart format .`, `dart
+analyze --fatal-infos`, `dart run melos run test`) is fully green across all
+11 pure-Dart packages, including the `glide_cli` fix described in "Test fix"
+below. `apps/companion` is confirmed `flutter analyze` clean with 80 tests
+passing, which includes the Phase 13-15 companion UI (performance line,
+Network sheet, DevTools button). All tests use fakes: nothing here has been
+run against a real Flutter app, phone or emulator. "Written" therefore never
+means "proven on real hardware".
+
+## UI and polish pass (post Phase 16)
+
+On top of the already-built glassmorphism design system
+(`shared/glide_glass.dart`, `app/theme.dart`), this pass added:
+
+- **Route transitions:** every `go_router` route now uses a short (220ms),
+  finite fade-and-rise `CustomTransitionPage` instead of the platform
+  default, so moving between screens reads as one continuous surface. It is
+  a single non-repeating tween, so it settles well inside `pumpAndSettle`
+  and should not affect existing widget tests.
+- **Log list:** lines now carry a level-appropriate icon and colour (error,
+  warning, muted trace/debug) instead of only highlighting errors.
+- **Error list:** each entry now shows a severity icon and a "copy" button
+  that puts the file, line and stack trace on the clipboard.
+- **`glide devices --watch`:** previously ran until the process was killed.
+  It now races the device stream against `ProcessSignal.sigint`, so Ctrl+C
+  stops watching and closes the session cleanly. Overridable via a new
+  `shutdown` parameter on `DevicesCommand`, following the same pattern
+  `glide run` already used for its own shutdown handling.
+- **`LICENSE`:** added (MIT). The copyright holder is a placeholder —
+  `[Your name or organization here]` — and needs a real name before this is
+  published; confirm MIT is the intended license first.
+
+None of this has been run. Please run `dart analyze --fatal-infos` and
+`dart run melos run test` at the repo root, and `flutter analyze` / `flutter
+test` in `apps/companion`, and paste any errors.
+
+## Still open (unchanged scope)
+
+- Nothing has run against a real Flutter app, device or emulator — still the
+  single biggest unproven assumption in the project.
+- No security contact in `SECURITY.md` beyond a placeholder.
+- Plain `ws://`/`http://` on the LAN, no TLS.
+- No standalone `glide reload`/`restart`/`stop` commands (only inside
+  `glide run`/`glide start`).
+- iOS has a doctor check only; no build/install/launch pipeline (Phase 16
+  proper).
+- Screenshot testing, session sharing, crash intelligence and the optional
+  cloud platform are all still unstarted, by design (Section 22/23 of the
+  original plan).
 
 ## Test fix: false-positive full-restart assertion
 
@@ -41,7 +76,7 @@ This has not been re-run; please confirm with `dart run melos run test` from
 | 4 | Device discovery (`glide devices`) | Written with unit tests; CLI wired |
 | 5 | Local session server | Written with unit tests |
 | 6 | Secure QR pairing (`glide start`) | Written with unit and loopback integration tests |
-| 7 | Mobile companion MVP | Dart code and tests written (scanner, paste-a-link, pairing, dashboard with run/reload/restart/stop, logs, structured errors, reconnect). Platform folders generated. First `flutter test` run: 59 of 62 passed; the failures were the generated counter-app test (removed) and one widget-test timing issue (fixed, awaiting re-run). Never run on a device or emulator; see `companion-setup.md` |
+| 7 | Mobile companion MVP | Dart code and tests written (scanner, paste-a-link, pairing, dashboard with run/reload/restart/stop, logs, structured errors, reconnect). Platform folders generated. First `flutter test` run: 59 of 62 passed; the failures were the generated counter-app test (removed) and one widget-test timing issue (fixed, awaiting re-run). Never run on a device or emulator; see `companion-setup.md`. **UI redesigned to a glassmorphism look** (see below); functionally unchanged and not yet re-run |
 | 8 | Android run pipeline (`glide run`, `app.run` over the companion channel) | Written with unit tests against a fake app session; never run against a real Flutter app |
 | 9 | Hot reload and restart (`r`/`R`/`F` in `glide run`, `app.reload`/`app.restart` from the companion) | Written with unit tests against a fake app session; never run against a real Flutter app |
 | 10 | Logs and diagnostics | Written with unit tests: output becomes `log.entry` and, when a line is a Dart, Kotlin, Gradle or Flutter-framework error, also `error.reported` (`glide_log_parser`). Single-line patterns only; multi-line Gradle explanations are not stitched together |
@@ -50,7 +85,7 @@ This has not been re-run; please confirm with `dart run melos run test` from
 | 13 | Performance monitoring (`glide_performance`, `performance.sample`) | Written, analyzed clean, tests pass against a fake VM service. Samples fps/frame time/memory from the real Dart VM service protocol on the computer; the VM service address is never sent to the companion (tested explicitly) |
 | 14 | DevTools integration (`d` key in `glide run`, `devtools.open` from the companion) | Written, analyzed clean, tests pass. Opens `dart devtools <address>` on the computer only; the phone gets a status message, never the address |
 | 15 | Network inspector (`glide_network`, `network.request`/`network.response`) | Written, analyzed clean, tests pass. Polls the VM service's HTTP profile (no app instrumentation needed); method/status/duration/size only, URLs stripped of query strings, credentials and fragments before leaving the computer |
-| 16 | iOS | Partial: `checkIosToolchain` (Xcode/CocoaPods) added to `glide doctor`, skips cleanly on non-macOS hosts, has a passing test. No iOS run pipeline, no build/install/launch support |
+| 16 | iOS | **Fully wired for a real attempt.** The run/reload/restart/performance/network/DevTools pipeline was already platform-agnostic (it drives `flutter run --machine -d <device-id>` for whatever device Flutter reports — `FlutterDevice.isIos`, `isMobile` and `runnableDevices` already treated iOS devices the same as Android, and `ChangeClassifier`/`PluginAnalyzer` already handled `ios/` and `Info.plist`), so no bridge/controller code changes were needed. What was actually missing and is now done: (1) the companion's `AndroidManifest.xml` and `Info.plist` never actually had the camera/network/ATS entries `companion-setup.md` only *documented* — they are now applied for real (camera + internet + cleartext-traffic on Android; camera + local-networking ATS exception on iOS); (2) `checkIosToolchain` in `glide doctor` (Xcode + CocoaPods, skips cleanly on non-macOS); (3) `docs/architecture/requirements.md` and `ARCHITECTURE.md` now state plainly what is and isn't automated for iOS. **Not done and cannot be done from this machine:** an iOS build/install/launch has never actually been attempted — iOS builds require a Mac with Xcode, which this environment does not have. Signing/provisioning, Xcode's iOS-version device-support download, and the "Trust This Computer" prompt are all outside Glide's control and are not diagnosed by the doctor check beyond "Xcode is/isn't runnable". Treat iOS as *architecturally ready, practically unverified* until someone runs `glide devices` / `glide run -d <ios-device-id>` / `glide start` + a real iPhone on an actual Mac and reports back what breaks. |
 
 ## Regression found and fixed (full restart)
 
@@ -87,7 +122,45 @@ message in its own output, does not point to a matching bug in
 explicitly) and is more consistent with fallout from the hang above than a
 separate defect. Re-run and report back if it still fails on its own.
 
-## What Phase 7 added
+## Companion UI: glassmorphism redesign
+
+Every companion screen (start, scanner, pairing confirmation, session
+dashboard) was restyled around a shared design system in
+`lib/shared/glide_glass.dart`: a `GlideTokens` `ThemeExtension` (background
+gradient, glow colours, frosted-glass fill/border/shadow), `GlideBackground`
+(gradient wash + two static blurred colour blobs), `GlassSurface`
+(`BackdropFilter` + translucent fill + hairline border — the card building
+block), `glassAppBar` (blurred, transparent app bar), and small helpers
+(`StatusDot`, `GlassIconBadge`). `lib/app/theme.dart` wires these into
+`FilledButton`/`OutlinedButton`/`TextButton`/`IconButton`/input/divider/
+bottom-sheet/progress-indicator themes so the look is consistent without
+touching every screen's widget tree by hand.
+
+**Deliberately no animation.** The widget tests drive the app with
+`pumpAndSettle()`, which never returns while a repeating animation is live,
+so the premium look comes entirely from static blur/gradient layering, not
+motion (no pulsing glow, no shimmer).
+
+**Test-compatibility constraints honoured:** every button `app_test.dart` and
+`restart_required_test.dart` depend on kept its exact widget type
+(`FilledButton`, `FilledButton.icon`, `FilledButton.tonalIcon`,
+`OutlinedButton`, `OutlinedButton.icon`) since those tests locate buttons via
+`find.bySubtype<ButtonStyleButton>()` ancestry and, for the restart banner's
+"Full restart now" button specifically, `find.widgetWithText(FilledButton,
+...)` — a literal type match that a custom-styled non-`FilledButton` widget
+would have failed. Every string the tests assert on (button labels, status
+labels, error/log formatting, restart-reason lines) is unchanged.
+
+**Not verified.** This was written and reasoned through against the test
+source, but never run — no `flutter analyze`, no `flutter test`, no real
+device. Two things to watch for specifically when you run it:
+1. `Color.withValues(alpha: ...)` is used throughout instead of the
+   deprecated `withOpacity`; this needs Flutter 3.27+ (Dart SDK ^3.6.0,
+   already the project's floor), so it should be fine, but confirm.
+2. `ThemeData.cardTheme`'s expected type (`CardTheme` vs `CardThemeData`)
+   has changed across recent Flutter versions, so that field was
+   deliberately left unset and the one `Card` usage (in the network sheet)
+   styled directly instead, to avoid a version-specific compile error.
 
 - `apps/companion` is a Flutter app (Riverpod, go_router, mobile_scanner). It
   is outside the pub workspace and depends on `glide_protocol` by path, so the

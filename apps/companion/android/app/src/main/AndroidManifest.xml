@@ -2,7 +2,8 @@
     <application
         android:label="glide_companion"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -42,4 +43,13 @@
             <data android:mimeType="text/plain"/>
         </intent>
     </queries>
+
+    <!-- Glide needs the network to reach `glide start` on the developer's
+         computer, and the camera to scan its pairing QR code. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false"/>
 </manifest>

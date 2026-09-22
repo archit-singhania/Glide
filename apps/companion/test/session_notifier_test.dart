@@ -14,6 +14,7 @@ ProviderContainer _container(FakeConnector connector) {
       companionClientProvider.overrideWithValue(
         CompanionClient(connect: connector.call, deviceId: 'companion-abc123'),
       ),
+      recentSessionsProvider.overrideWithValue(FakeRecentSessionsStore()),
     ],
   );
   addTearDown(container.dispose);

@@ -18,6 +18,7 @@ Widget _app(FakeConnector connector) => ProviderScope(
             deviceId: 'companion-abc123',
           ),
         ),
+        recentSessionsProvider.overrideWithValue(FakeRecentSessionsStore()),
       ],
       child: const GlideCompanionApp(),
     );
@@ -52,6 +53,14 @@ bool _enabled(WidgetTester tester, String label) {
 Future<void> _enterLinkAndContinue(WidgetTester tester, String link) async {
   await tester.enterText(find.byType(TextField), link);
   await tester.ensureVisible(find.text('Continue'));
+  // `ensureVisible` jumps the scroll position instantly but does not lay
+  // out/paint the new position itself, so the widget's on-screen offset is
+  // still stale until a frame is pumped. Tapping immediately after
+  // `ensureVisible` (as this used to) computes coordinates from that stale
+  // position and can miss the button once the screen is tall enough to need
+  // an actual scroll (it wasn't, before the glassmorphism redesign added a
+  // taller header and card padding above this button).
+  await tester.pump();
   await tester.tap(find.text('Continue'));
 }
 

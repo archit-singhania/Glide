@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:glide_protocol/glide_protocol.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../shared/glide_glass.dart';
 import 'session_notifier.dart';
 import 'session_view.dart';
 
@@ -18,20 +20,24 @@ class SessionScreen extends ConsumerWidget {
     final linked = view.isLinked;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Glide'),
+      extendBodyBehindAppBar: true,
+      appBar: glassAppBar(
+        context,
+        title: 'Glide',
         actions: <Widget>[
           IconButton(
             tooltip: 'Open DevTools on computer',
             icon: const Icon(Icons.developer_mode),
             onPressed: view.canOpenDevTools ? notifier.openDevTools : null,
           ),
+          const SizedBox(width: 4),
           IconButton(
             tooltip: 'Network',
             icon: const Icon(Icons.swap_vert),
             onPressed:
                 view.network.isEmpty ? null : () => _showNetwork(context),
           ),
+          const SizedBox(width: 4),
           IconButton(
             tooltip: 'Disconnect',
             icon: const Icon(Icons.link_off),
@@ -40,78 +46,91 @@ class SessionScreen extends ConsumerWidget {
               if (context.mounted) context.go('/');
             },
           ),
+          const SizedBox(width: 8),
         ],
       ),
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: <Widget>[
-            _StatusCard(view: view),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: <Widget>[
-                  FilledButton.icon(
-                    onPressed: view.canRun ? notifier.run : null,
-                    icon: const Icon(Icons.play_arrow),
-                    label: const Text('Run'),
-                  ),
-                  FilledButton.tonalIcon(
-                    onPressed: view.canReload ? notifier.hotReload : null,
-                    icon: const Icon(Icons.bolt),
-                    label: const Text('Hot reload'),
-                  ),
-                  OutlinedButton(
-                    onPressed: view.canReload ? notifier.hotRestart : null,
-                    child: const Text('Hot restart'),
-                  ),
-                  OutlinedButton(
-                    onPressed: view.canReload ? notifier.fullRestart : null,
-                    child: const Text('Full restart'),
-                  ),
-                  OutlinedButton.icon(
-                    onPressed: view.canStop ? notifier.stopApp : null,
-                    icon: const Icon(Icons.stop),
-                    label: const Text('Stop'),
-                  ),
-                ],
-              ),
-            ),
-            if (view.needsFullRestart)
-              _RestartBanner(
-                reasons: view.restartReasons,
-                onRestart: view.canReload ? notifier.fullRestart : null,
-              ),
-            if (!linked && view.link != LinkStatus.reconnecting)
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      body: GlideBackground(
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(20, 100, 20, 24),
+            children: <Widget>[
+              _StatusCard(view: view),
+              const SizedBox(height: 16),
+              GlassSurface(
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
                   children: <Widget>[
-                    if (view.linkMessage != null)
-                      Text(
-                        view.linkMessage!,
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
-                    if (notifier.canReconnect)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: FilledButton.tonal(
-                          onPressed: notifier.reconnect,
-                          child: const Text('Reconnect'),
-                        ),
-                      ),
+                    FilledButton.icon(
+                      onPressed: view.canRun ? notifier.run : null,
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Run'),
+                    ),
+                    FilledButton.tonalIcon(
+                      onPressed: view.canReload ? notifier.hotReload : null,
+                      icon: const Icon(Icons.bolt),
+                      label: const Text('Hot reload'),
+                    ),
+                    OutlinedButton(
+                      onPressed: view.canReload ? notifier.hotRestart : null,
+                      child: const Text('Hot restart'),
+                    ),
+                    OutlinedButton(
+                      onPressed: view.canReload ? notifier.fullRestart : null,
+                      child: const Text('Full restart'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: view.canStop ? notifier.stopApp : null,
+                      icon: const Icon(Icons.stop),
+                      label: const Text('Stop'),
+                    ),
                   ],
                 ),
               ),
-            if (view.errors.isNotEmpty) _ErrorList(errors: view.errors),
-            const Divider(height: 24),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
+              if (view.needsFullRestart) ...<Widget>[
+                const SizedBox(height: 16),
+                _RestartBanner(
+                  reasons: view.restartReasons,
+                  onRestart: view.canReload ? notifier.fullRestart : null,
+                ),
+              ],
+              if (!linked && view.link != LinkStatus.reconnecting) ...[
+                const SizedBox(height: 16),
+                GlassSurface(
+                  strong: true,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: <Widget>[
+                      if (view.linkMessage != null)
+                        Text(
+                          view.linkMessage!,
+                          style: TextStyle(color: theme.colorScheme.error),
+                        ),
+                      if (notifier.canReconnect)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: FilledButton.tonal(
+                            onPressed: notifier.reconnect,
+                            child: const Text('Reconnect'),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+              if (view.errors.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 16),
+                _ErrorList(errors: view.errors),
+              ],
+              const SizedBox(height: 24),
+              Row(
                 children: <Widget>[
+                  Icon(
+                    Icons.terminal,
+                    size: 16,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                  const SizedBox(width: 8),
                   Text('Logs', style: theme.textTheme.titleSmall),
                   const Spacer(),
                   TextButton(
@@ -122,9 +141,19 @@ class SessionScreen extends ConsumerWidget {
                   ),
                 ],
               ),
-            ),
-            Expanded(child: _LogList(logs: view.logs)),
-          ],
+              const SizedBox(height: 8),
+              GlassSurface(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
+                child: SizedBox(
+                  height: 260,
+                  child: _LogList(logs: view.logs),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -156,28 +185,59 @@ class _NetworkSheet extends ConsumerWidget {
     return SafeArea(
       child: SizedBox(
         height: MediaQuery.of(context).size.height * 0.6,
-        child: calls.isEmpty
-            ? const Center(child: Text('No requests yet.'))
-            : ListView.builder(
-                itemCount: calls.length,
-                itemBuilder: (context, index) {
-                  final call = calls[calls.length - 1 - index];
-                  return ListTile(
-                    dense: true,
-                    title: Text(
-                      '${call.method} ${call.url}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      call.summary,
-                      style: call.failed
-                          ? TextStyle(color: theme.colorScheme.error)
-                          : null,
-                    ),
-                  );
-                },
+        child: Column(
+          children: <Widget>[
+            const SizedBox(height: 12),
+            Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.4,
+                ),
+                borderRadius: BorderRadius.circular(4),
               ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                children: <Widget>[
+                  Icon(Icons.swap_vert, color: theme.colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Text('Network', style: theme.textTheme.titleMedium),
+                ],
+              ),
+            ),
+            Expanded(
+              child: calls.isEmpty
+                  ? const Center(child: Text('No requests yet.'))
+                  : ListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      itemCount: calls.length,
+                      itemBuilder: (context, index) {
+                        final call = calls[calls.length - 1 - index];
+                        return Card(
+                          margin: const EdgeInsets.symmetric(vertical: 4),
+                          child: ListTile(
+                            dense: true,
+                            title: Text(
+                              '${call.method} ${call.url}',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Text(
+                              call.summary,
+                              style: call.failed
+                                  ? TextStyle(color: theme.colorScheme.error)
+                                  : null,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -200,52 +260,82 @@ class _StatusCard extends StatelessWidget {
     final noticeColor = view.noticeIsError
         ? theme.colorScheme.error
         : theme.colorScheme.onSurface;
-    return Card(
-      margin: const EdgeInsets.all(16),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
+    return GlassSurface(
+      strong: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Row(
+            children: <Widget>[
+              StatusDot(
+                color: view.isLinked ? Colors.greenAccent : Colors.grey,
+              ),
+              const SizedBox(width: 10),
+              Text(_linkLabel(view), style: theme.textTheme.titleSmall),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primary.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  view.sessionState,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.primary,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (view.deviceId != null) ...<Widget>[
+            const SizedBox(height: 10),
             Row(
               children: <Widget>[
                 Icon(
-                  Icons.circle,
-                  size: 12,
-                  color: view.isLinked ? Colors.green : Colors.grey,
+                  Icons.phone_iphone,
+                  size: 16,
+                  color: theme.colorScheme.onSurfaceVariant,
                 ),
-                const SizedBox(width: 8),
-                Text(
-                  _linkLabel(view),
-                  style: theme.textTheme.titleSmall,
-                ),
-                const Spacer(),
-                Text(view.sessionState, style: theme.textTheme.labelLarge),
+                const SizedBox(width: 6),
+                Text('Device: ${view.deviceId}'),
               ],
             ),
-            if (view.deviceId != null) ...<Widget>[
-              const SizedBox(height: 8),
-              Text('Device: ${view.deviceId}'),
-            ],
-            if (view.progress != null) ...<Widget>[
-              const SizedBox(height: 12),
-              const LinearProgressIndicator(),
-              const SizedBox(height: 4),
-              Text(view.progress!, style: theme.textTheme.bodySmall),
-            ],
-            if (view.notice != null) ...<Widget>[
-              const SizedBox(height: 12),
-              Text(view.notice!, style: TextStyle(color: noticeColor)),
-            ],
-            if (view.performance != null) ...<Widget>[
-              const SizedBox(height: 8),
-              Text(
-                _performanceLine(view.performance!),
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
           ],
-        ),
+          if (view.progress != null) ...<Widget>[
+            const SizedBox(height: 14),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: const LinearProgressIndicator(minHeight: 6),
+            ),
+            const SizedBox(height: 6),
+            Text(view.progress!, style: theme.textTheme.bodySmall),
+          ],
+          if (view.notice != null) ...<Widget>[
+            const SizedBox(height: 12),
+            Text(view.notice!, style: TextStyle(color: noticeColor)),
+          ],
+          if (view.performance != null) ...<Widget>[
+            const SizedBox(height: 10),
+            Row(
+              children: <Widget>[
+                Icon(
+                  Icons.speed,
+                  size: 14,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _performanceLine(view.performance!),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+          ],
+        ],
       ),
     );
   }
@@ -261,40 +351,69 @@ class _RestartBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = glideTokens(context);
     final shown = reasons.take(2).toList();
-    return Container(
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.tertiaryContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
+    return GlassSurface(
+      strong: true,
+      borderRadius: 20,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('Full restart required', style: theme.textTheme.titleSmall),
-          const SizedBox(height: 4),
+          Row(
+            children: <Widget>[
+              GlassIconBadge(
+                icon: Icons.restart_alt,
+                size: 36,
+                color: tokens.glowSecondary,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Full restart required',
+                  style: theme.textTheme.titleSmall,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
           const Text('Hot reload cannot apply these changes:'),
+          const SizedBox(height: 4),
           for (final reason in shown)
-            Text(
-              '${reason.path} - ${reason.reason}',
-              style: theme.textTheme.bodySmall,
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '${reason.path} - ${reason.reason}',
+                style: theme.textTheme.bodySmall,
+              ),
             ),
           if (reasons.length > shown.length)
-            Text(
-              '...and ${reasons.length - shown.length} more',
-              style: theme.textTheme.bodySmall,
+            Padding(
+              padding: const EdgeInsets.only(top: 2),
+              child: Text(
+                '...and ${reasons.length - shown.length} more',
+                style: theme.textTheme.bodySmall,
+              ),
             ),
-          const SizedBox(height: 8),
-          FilledButton(
-            onPressed: onRestart,
-            child: const Text('Full restart now'),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: onRestart,
+              child: const Text('Full restart now'),
+            ),
           ),
         ],
       ),
     );
   }
 }
+
+IconData _severityIcon(DiagnosticSeverity severity) => switch (severity) {
+      DiagnosticSeverity.info => Icons.info_outline,
+      DiagnosticSeverity.warning => Icons.warning_amber_rounded,
+      DiagnosticSeverity.error => Icons.error_outline,
+      DiagnosticSeverity.fatal => Icons.dangerous_outlined,
+    };
 
 class _ErrorList extends StatelessWidget {
   const _ErrorList({required this.errors});
@@ -304,39 +423,91 @@ class _ErrorList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      constraints: const BoxConstraints(maxHeight: 160),
-      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.all(12),
-        children: <Widget>[
-          for (final error in errors.reversed)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: <Widget>[
-                  if (error.file != null)
-                    Text(
-                      '${error.file}'
-                      '${error.line != null ? ':${error.line}' : ''}'
-                      '${error.column != null ? ':${error.column}' : ''}',
-                      style: theme.textTheme.labelMedium,
+    return GlassSurface(
+      strong: true,
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 220),
+        child: ListView(
+          shrinkWrap: true,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          children: <Widget>[
+            for (final error in errors.reversed)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Icon(
+                        _severityIcon(error.severity),
+                        size: 18,
+                        color: theme.colorScheme.error,
+                      ),
                     ),
-                  Text(error.message),
-                  Text(error.source, style: theme.textTheme.bodySmall),
-                ],
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: <Widget>[
+                          if (error.file != null)
+                            Text(
+                              '${error.file}'
+                              '${error.line != null ? ':${error.line}' : ''}'
+                              '${error.column != null ? ':${error.column}' : ''}',
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: theme.colorScheme.error,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                          Text(error.message),
+                          Text(
+                            error.source,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Copy',
+                      iconSize: 18,
+                      visualDensity: VisualDensity.compact,
+                      icon: const Icon(Icons.copy_all_outlined),
+                      onPressed: () => Clipboard.setData(
+                        ClipboardData(
+                          text: <String>[
+                            if (error.file != null)
+                              '${error.file}:${error.line ?? ''}',
+                            error.message,
+                            if (error.stackTrace != null) error.stackTrace!,
+                          ].join('\n'),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
+}
+
+Color? _logColor(BuildContext context, LogLevel level) {
+  final scheme = Theme.of(context).colorScheme;
+  final tokens = glideTokens(context);
+  return switch (level) {
+    LogLevel.error => scheme.error,
+    LogLevel.warning => tokens.glowSecondary,
+    LogLevel.trace || LogLevel.debug => scheme.onSurfaceVariant.withValues(
+        alpha: 0.65,
+      ),
+    LogLevel.info => null,
+  };
 }
 
 class _LogList extends StatelessWidget {
@@ -349,19 +520,38 @@ class _LogList extends StatelessWidget {
     if (logs.isEmpty) {
       return const Center(child: Text('No log output yet.'));
     }
-    final error = Theme.of(context).colorScheme.error;
     return ListView.builder(
       reverse: true,
-      padding: const EdgeInsets.symmetric(horizontal: 16),
       itemCount: logs.length,
       itemBuilder: (context, index) {
         final entry = logs[logs.length - 1 - index];
-        return Text(
-          entry.message,
-          style: TextStyle(
-            fontFamily: 'monospace',
-            fontSize: 12,
-            color: entry.level == LogLevel.error ? error : null,
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Text.rich(
+            TextSpan(
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              children: <InlineSpan>[
+                if (entry.level == LogLevel.error ||
+                    entry.level == LogLevel.warning)
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.middle,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 4),
+                      child: Icon(
+                        entry.level == LogLevel.error
+                            ? Icons.error_outline
+                            : Icons.warning_amber_rounded,
+                        size: 13,
+                        color: _logColor(context, entry.level),
+                      ),
+                    ),
+                  ),
+                TextSpan(
+                  text: entry.message,
+                  style: TextStyle(color: _logColor(context, entry.level)),
+                ),
+              ],
+            ),
           ),
         );
       },

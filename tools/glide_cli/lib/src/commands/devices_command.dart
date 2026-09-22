@@ -1,4 +1,6 @@
+import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:args/command_runner.dart';
 import 'package:glide_device_manager/glide_device_manager.dart';
@@ -6,17 +8,25 @@ import 'package:glide_device_manager/glide_device_manager.dart';
 import '../services/device_session.dart';
 import '../ui/devices_renderer.dart';
 
+/// Waits for Ctrl+C. Overridable so tests never hang on a real signal.
+typedef InterruptTrigger = Future<void> Function();
+
+Future<void> _waitForInterrupt() async {
+  await ProcessSignal.sigint.watch().first;
+}
+
 /// `glide devices` - lists devices Glide can run Flutter apps on.
 ///
 /// Without `--watch` this prints one snapshot and exits. With `--watch` it
-/// keeps printing snapshots as devices connect or disconnect, until the
-/// underlying session ends (currently: until the process is killed, since
-/// nothing today calls back to signal a graceful stop while watching).
+/// keeps printing snapshots as devices connect or disconnect, until Ctrl+C
+/// is pressed, at which point it stops watching and closes the session
+/// cleanly rather than being killed outright.
 class DevicesCommand extends Command<int> {
   DevicesCommand({
     required this.openSession,
     required this.out,
     this.renderer = const DevicesRenderer(),
+    this.shutdown = _waitForInterrupt,
   }) {
     argParser
       ..addOption(
@@ -39,6 +49,7 @@ class DevicesCommand extends Command<int> {
   final DeviceSessionOpener openSession;
   final StringSink out;
   final DevicesRenderer renderer;
+  final InterruptTrigger shutdown;
 
   @override
   String get name => 'devices';
@@ -55,9 +66,16 @@ class DevicesCommand extends Command<int> {
     final asJson = results['json'] as bool;
     try {
       if (results['watch'] as bool) {
-        await for (final devices in session.manager.watchDevices()) {
-          _print(devices, asJson: asJson);
-        }
+        final interrupted = Completer<void>();
+        unawaited(shutdown().then((_) => interrupted.complete()));
+        final devices = session.manager.watchDevices().listen(
+              (devices) => _print(devices, asJson: asJson),
+            );
+        await Future.any<void>(<Future<void>>[
+          interrupted.future,
+          devices.asFuture<void>(),
+        ]);
+        await devices.cancel();
       } else {
         _print(session.manager.devices, asJson: asJson);
       }

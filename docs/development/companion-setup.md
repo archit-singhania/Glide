@@ -38,9 +38,11 @@ The tests use fakes for the network, so no computer or phone is needed.
 
 ## 3. Platform settings the app needs
 
-Glide's session channel is plain `ws://` on the local network (see "Known
-limitations" in `phases.md`), and pairing uses the camera. Add the following to
-the generated files.
+**Already applied in this repository** as of the Phase 16 pass —
+`android/app/src/main/AndroidManifest.xml` and `ios/Runner/Info.plist` already
+have the entries below. This section is kept so you know what was added and
+why, and so you can re-apply it if you ever regenerate the platform folders
+with `flutter create`, which overwrites both files.
 
 ### Android (`android/app/src/main/AndroidManifest.xml`)
 

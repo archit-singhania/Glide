@@ -40,7 +40,9 @@ exists. Use `flutter --version --machine`, `flutter devices --machine`,
 | `glide_device_manager` | Device discovery and per-device state | bridge, protocol |
 | `glide_log_parser` | Normalise tool output into `DiagnosticEvent` | protocol |
 | `glide_session_server` | Authenticated local HTTP/WebSocket server | log parser, protocol, security |
-| `glide_build_manager` | run / reload / restart / watch orchestration | device manager, bridge, log parser, analyzer, protocol |
+| `glide_performance` | Sample fps/frame time/memory from the Dart VM service | (standalone; wired in by build manager) |
+| `glide_network` | Poll the Dart VM service's HTTP profile for request/response events, sanitising URLs | (standalone; wired in by build manager) |
+| `glide_build_manager` | run / reload / restart / watch / performance / network / DevTools orchestration | device manager, bridge, log parser, analyzer, performance, network, protocol |
 | `glide_cli` | The `glide` executable | all of the above |
 
 ## Boundary rules
@@ -72,5 +74,13 @@ glide start
   -> bridge drives `flutter run --machine`; events flow back as GlideMessages
 ```
 
-Implemented today: the protocol, the security primitives, the bridge and
-`glide doctor`. The flow above is assembled in Phases 4-9.
+Implemented and unit-tested (fakes only, never a real Flutter app/device):
+the protocol, security primitives, bridge, `glide doctor`/`inspect`/`devices`,
+the session server and QR pairing (`glide start`), the mobile companion app,
+the Android run pipeline with hot reload/restart (`glide run`), logs and
+diagnostics, the plugin analyzer (`glide plugins`), native-change/full-restart
+detection, performance sampling, DevTools launching and the network
+inspector. iOS is architecturally supported already (the bridge invokes
+`flutter run --machine -d <device-id>` for any device Flutter reports, iOS
+included) but has only a doctor-level toolchain check and has never run on a
+Mac; see `docs/development/phases.md` for the exact state of every phase.

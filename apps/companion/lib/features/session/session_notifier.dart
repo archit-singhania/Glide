@@ -5,12 +5,21 @@ import 'package:glide_protocol/glide_protocol.dart';
 
 import '../../core/companion_client.dart';
 import '../../core/message_channel.dart';
+import '../../core/recent_sessions.dart';
 import 'session_view.dart';
 
 /// Provided in `main()` (and overridden in tests).
 final Provider<CompanionClient> companionClientProvider =
     Provider<CompanionClient>(
   (ref) => throw UnimplementedError('companionClientProvider not overridden'),
+);
+
+/// Provided in `main()` (and overridden in tests). Remembers which computers
+/// this phone has connected to before, purely for the "Recent" list on the
+/// home screen — never a credential.
+final Provider<RecentSessionsStore> recentSessionsProvider =
+    Provider<RecentSessionsStore>(
+  (ref) => throw UnimplementedError('recentSessionsProvider not overridden'),
 );
 
 final NotifierProvider<SessionNotifier, SessionView> sessionProvider =
@@ -95,6 +104,9 @@ class SessionNotifier extends Notifier<SessionView> {
       onError: (Object _) => _onClosed('The connection was lost.'),
     );
     state = const SessionView(link: LinkStatus.connected);
+    unawaited(
+      ref.read(recentSessionsProvider).record(host: host, port: port),
+    );
     _send(CompanionCommandType.diagnosticsRequest);
   }
 

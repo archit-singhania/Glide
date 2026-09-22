@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app/app.dart';
 import 'core/companion_client.dart';
 import 'core/message_channel.dart';
+import 'core/recent_sessions.dart';
 import 'features/session/session_notifier.dart';
 
 Future<void> main() async {
@@ -17,6 +18,7 @@ Future<void> main() async {
         companionClientProvider.overrideWithValue(
           CompanionClient(connect: connectWebSocket, deviceId: deviceId),
         ),
+        recentSessionsProvider.overrideWithValue(RecentSessionsStore(prefs)),
       ],
       child: const GlideCompanionApp(),
     ),

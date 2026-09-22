@@ -66,5 +66,21 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- Required to scan a `glide start` pairing QR code. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Glide uses the camera to scan the pairing QR code shown by "glide start" on your computer.</string>
+	<!-- Glide connects to a plain ws:// / http:// session on your local
+	     network (the computer running "glide start"), so local-network
+	     connections are exempted from iOS's default HTTPS-only policy. This
+	     does not allow arbitrary internet connections. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<!-- Shown if iOS treats connecting to the developer's computer as local
+	     network access (iOS 14+). -->
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Glide connects to "glide start" running on your computer over your local Wi-Fi network.</string>
 </dict>
 </plist>
