@@ -55,7 +55,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
           MobileScanner(
             controller: _controller,
             onDetect: _onDetect,
-            errorBuilder: (context, error, child) => ColoredBox(
+            errorBuilder: (context, error) => ColoredBox(
               color: Colors.black,
               child: Center(
                 child: Padding(

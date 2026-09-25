@@ -67,7 +67,7 @@ class RecentSessionsStore {
   /// Adds or refreshes an entry for [host]:[port], most-recent first, capped
   /// to [_maxEntries].
   Future<void> record({required String host, required int port}) async {
-    final sessions = load()
+    final sessions = List<RecentSession>.of(load())
       ..removeWhere((s) => s.host == host && s.port == port);
     sessions.insert(
       0,
@@ -77,7 +77,7 @@ class RecentSessionsStore {
   }
 
   Future<void> remove({required String host, required int port}) async {
-    final sessions = load()
+    final sessions = List<RecentSession>.of(load())
       ..removeWhere((s) => s.host == host && s.port == port);
     await _save(sessions);
   }

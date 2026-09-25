@@ -4,7 +4,7 @@ publish_to: none
 version: 0.1.0+1
 
 environment:
-  sdk: ^3.6.0
+  sdk: ^3.7.0
 
 # Kept outside the root Dart pub workspace on purpose: a Flutter app cannot
 # resolve inside a pure-Dart workspace. It shares the wire protocol through a
@@ -16,7 +16,7 @@ dependencies:
   glide_protocol:
     path: ../../packages/glide_protocol
   go_router: ^14.6.0
-  mobile_scanner: ^6.0.0
+  mobile_scanner: ^7.4.2
   shared_preferences: ^2.3.0
   web_socket_channel: ^3.0.0
 
